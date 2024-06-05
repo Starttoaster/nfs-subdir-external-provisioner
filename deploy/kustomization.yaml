@@ -1,4 +1,0 @@
-resources:
-  - class.yaml
-  - rbac.yaml
-  - deployment.yaml

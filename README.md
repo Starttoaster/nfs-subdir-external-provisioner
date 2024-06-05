@@ -13,7 +13,7 @@ To note again, you must _already_ have an NFS Server.
 
 ### With Helm
 
-Follow the instructions from the helm chart [README](charts/nfs-subdir-external-provisioner/README.md).
+Follow the instructions from the helm chart [README](chart/nfs-subdir-external-provisioner/README.md).
 
 The tl;dr is
 
@@ -309,7 +309,7 @@ make container
 
 # Build and publish with GitHub Actions
 
-In a forked repository you can use GitHub Actions pipeline defined in [.github/workflows/release.yml](.github/workflows/release.yml). The pipeline builds Docker images for `linux/amd64`, `linux/arm64`, and `linux/arm/v7` platforms and publishes them using a multi-arch manifest. The pipeline is triggered when you add a tag like `gh-v{major}.{minor}.{patch}` to your commit and push it to GitHub. The tag is used for generating Docker image tags: `latest`, `{major}`, `{major}:{minor}`, `{major}:{minor}:{patch}`.
+In a forked repository you can use GitHub Actions pipeline defined in [.github/workflows/release.yml](.github/workflows/docker.yml). The pipeline builds Docker images for `linux/amd64`, `linux/arm64`, and `linux/arm/v7` platforms and publishes them using a multi-arch manifest. The pipeline is triggered when you add a tag like `gh-v{major}.{minor}.{patch}` to your commit and push it to GitHub. The tag is used for generating Docker image tags: `latest`, `{major}`, `{major}:{minor}`, `{major}:{minor}:{patch}`.
 
 The pipeline adds several labels:
 * `org.opencontainers.image.title=${{ github.event.repository.name }}`
