@@ -1,11 +1,11 @@
 # NFS Subdirectory External Provisioner Helm Chart
 
-The [NFS subdir external provisioner](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner) is an automatic provisioner for Kubernetes that uses your *already configured* NFS server, automatically creating Persistent Volumes.
+The [NFS subdir external provisioner](https://github.com/Starttoaster/nfs-subdir-external-provisioner) is an automatic provisioner for Kubernetes that uses your *already configured* NFS server, automatically creating Persistent Volumes.
 
 ## TL;DR;
 
 ```console
-$ helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+$ helm repo add nfs-subdir-external-provisioner https://starttoaster.github.io/nfs-subdir-external-provisioner/
 $ helm install nfs-subdir-external-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
     --set nfs.server=x.x.x.x \
     --set nfs.path=/exported/path
@@ -13,7 +13,7 @@ $ helm install nfs-subdir-external-provisioner nfs-subdir-external-provisioner/n
 
 ## Introduction
 
-This charts installs custom [storage class](https://kubernetes.io/docs/concepts/storage/storage-classes/) into a [Kubernetes](http://kubernetes.io) cluster using the [Helm](https://helm.sh) package manager. It also installs a [NFS client provisioner](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner) into the cluster which dynamically creates persistent volumes from single NFS share.
+This charts installs custom [storage class](https://kubernetes.io/docs/concepts/storage/storage-classes/) into a [Kubernetes](http://kubernetes.io) cluster using the [Helm](https://helm.sh) package manager. It also installs a [NFS client provisioner](https://github.com/Starttoaster/nfs-subdir-external-provisioner) into the cluster which dynamically creates persistent volumes from a single NFS share.
 
 ## Prerequisites
 
@@ -24,8 +24,8 @@ This charts installs custom [storage class](https://kubernetes.io/docs/concepts/
 
 To install the chart with the release name `my-release`:
 
-```console
-$ helm install my-release nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
+```bash
+helm install my-release nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
     --set nfs.server=x.x.x.x \
     --set nfs.path=/exported/path
 ```
@@ -38,8 +38,8 @@ The command deploys the given storage class in the default configuration. It can
 
 To uninstall/delete the `my-release` deployment:
 
-```console
-$ helm delete my-release
+```bash
+helm delete my-release
 ```
 
 The command removes all the Kubernetes components associated with the chart and deletes the release.
