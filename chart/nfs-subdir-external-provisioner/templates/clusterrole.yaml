@@ -21,6 +21,9 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "update", "patch"]
+  - verbs: ['*']
+    apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
 {{- if .Values.podSecurityPolicy.enabled }}
   - apiGroups:      ['extensions']
     resources:      ['podsecuritypolicies']
