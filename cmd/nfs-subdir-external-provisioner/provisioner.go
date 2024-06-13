@@ -96,6 +96,7 @@ func (p *nfsProvisioner) Provision(ctx context.Context, options controller.Provi
 		data: map[string]string{
 			"name":      pvcName,
 			"namespace": pvcNamespace,
+			"pvname": options.PVName,
 		},
 		labels:      options.PVC.Labels,
 		annotations: options.PVC.Annotations,
