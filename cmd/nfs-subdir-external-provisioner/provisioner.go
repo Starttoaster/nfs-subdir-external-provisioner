@@ -74,7 +74,7 @@ func (meta *pvcMetadata) stringParser(str string) string {
 }
 
 const (
-	mountPath = "/persistentvolumes"
+	mountPath = "/persistentvolumes/"
 )
 
 var _ controller.Provisioner = &nfsProvisioner{}
@@ -152,6 +152,7 @@ func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume
 	path := volume.Spec.PersistentVolumeSource.NFS.Path
 	basePath := filepath.Base(path)
 	oldPath := strings.Replace(path, p.path, mountPath, 1)
+	parentPath := filepath.Dir(oldPath)
 
 	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
 		logger.Info(fmt.Sprintf("warning: path %s does not exist, deletion skipped", oldPath))
@@ -169,7 +170,16 @@ func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume
 	onDelete := storageClass.Parameters["onDelete"]
 	switch onDelete {
 	case "delete":
-		return os.RemoveAll(oldPath)
+		err = os.RemoveAll(oldPath)
+		if err != nil {
+			return err
+		}
+		logger.Info(fmt.Sprintf("path %s has been deleted", oldPath))
+		err = os.Remove(parentPath)
+		if err == nil {
+			logger.Info(fmt.Sprintf("Empty parent %s has been deleted", parentPath))
+		}		
+    		return nil
 	case "retain":
 		return nil
 	}
