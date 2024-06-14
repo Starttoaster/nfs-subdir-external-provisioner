@@ -74,7 +74,7 @@ func (meta *pvcMetadata) stringParser(str string) string {
 }
 
 const (
-	mountPath = "/persistentvolumes"
+	mountPath = "/persistentvolumes/"
 )
 
 var _ controller.Provisioner = &nfsProvisioner{}
@@ -96,6 +96,7 @@ func (p *nfsProvisioner) Provision(ctx context.Context, options controller.Provi
 		data: map[string]string{
 			"name":      pvcName,
 			"namespace": pvcNamespace,
+			"pvname": options.PVName,
 		},
 		labels:      options.PVC.Labels,
 		annotations: options.PVC.Annotations,
@@ -145,6 +146,16 @@ func (p *nfsProvisioner) Provision(ctx context.Context, options controller.Provi
 	return pv, controller.ProvisioningFinished, nil
 }
 
+func pruneEmptyParents(path string) {
+  if filepath.Clean(path) == filepath.Clean(mountPath) {
+    return
+  }
+  err := os.Remove(path)
+  if err == nil {
+    pruneEmptyParents(filepath.Dir(path))
+  } 
+} 
+
 func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume) error {
 	logger := klog.FromContext(ctx)
 
@@ -168,7 +179,13 @@ func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume
 	onDelete := storageClass.Parameters["onDelete"]
 	switch onDelete {
 	case "delete":
-		return os.RemoveAll(oldPath)
+		err = os.RemoveAll(oldPath)
+		if err != nil {
+			return err
+		}
+    pruneEmptyParents(filepath.Dir(oldPath))
+		logger.Info(fmt.Sprintf("path %s and any empty parents have been deleted", oldPath))
+    return nil
 	case "retain":
 		return nil
 	}
