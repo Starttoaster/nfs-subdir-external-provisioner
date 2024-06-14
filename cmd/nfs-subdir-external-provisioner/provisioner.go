@@ -17,265 +17,282 @@ limitations under the License.
 package main
 
 import (
-	"context"
-	"errors"
-	"flag"
-	"fmt"
-	storagehelpers "k8s.io/component-helpers/storage/volume"
-	"k8s.io/klog/v2"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strconv"
-	"strings"
+  "context"
+  "errors"
+  "flag"
+  "fmt"
+  storagehelpers "k8s.io/component-helpers/storage/volume"
+  "k8s.io/klog/v2"
+  "os"
+  "path/filepath"
+  "regexp"
+  "strconv"
+  "strings"
 
-	v1 "k8s.io/api/core/v1"
+  v1 "k8s.io/api/core/v1"
 
-	storage "k8s.io/api/storage/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	"sigs.k8s.io/sig-storage-lib-external-provisioner/v10/controller"
+  storage "k8s.io/api/storage/v1"
+  metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+  "k8s.io/client-go/kubernetes"
+  "k8s.io/client-go/rest"
+  "k8s.io/client-go/tools/clientcmd"
+  "sigs.k8s.io/sig-storage-lib-external-provisioner/v10/controller"
 )
 
 const (
-	provisionerNameKey = "PROVISIONER_NAME"
+  provisionerNameKey = "PROVISIONER_NAME"
 )
 
 type nfsProvisioner struct {
-	client kubernetes.Interface
-	server string
-	path   string
+  client kubernetes.Interface
+  server string
+  path   string
 }
 
 type pvcMetadata struct {
-	data        map[string]string
-	labels      map[string]string
-	annotations map[string]string
+  data        map[string]string
+  labels      map[string]string
+  annotations map[string]string
 }
 
 var pattern = regexp.MustCompile(`\${\.PVC\.((labels|annotations)\.(.*?)|.*?)}`)
 
 func (meta *pvcMetadata) stringParser(str string) string {
-	result := pattern.FindAllStringSubmatch(str, -1)
-	for _, r := range result {
-		switch r[2] {
-		case "labels":
-			str = strings.ReplaceAll(str, r[0], meta.labels[r[3]])
-		case "annotations":
-			str = strings.ReplaceAll(str, r[0], meta.annotations[r[3]])
-		default:
-			str = strings.ReplaceAll(str, r[0], meta.data[r[1]])
-		}
-	}
+  result := pattern.FindAllStringSubmatch(str, -1)
+  for _, r := range result {
+    switch r[2] {
+    case "labels":
+      str = strings.ReplaceAll(str, r[0], meta.labels[r[3]])
+    case "annotations":
+      str = strings.ReplaceAll(str, r[0], meta.annotations[r[3]])
+    default:
+      str = strings.ReplaceAll(str, r[0], meta.data[r[1]])
+    }
+  }
 
-	return str
+  return str
 }
 
 const (
-	mountPath = "/persistentvolumes"
+  mountPath = "/persistentvolumes/"
 )
 
 var _ controller.Provisioner = &nfsProvisioner{}
 
 func (p *nfsProvisioner) Provision(ctx context.Context, options controller.ProvisionOptions) (*v1.PersistentVolume, controller.ProvisioningState, error) {
-	logger := klog.FromContext(ctx)
+  logger := klog.FromContext(ctx)
 
-	if options.PVC.Spec.Selector != nil {
-		return nil, controller.ProvisioningFinished, fmt.Errorf("claim Selector is not supported")
-	}
-	logger.Info(fmt.Sprintf("nfs provisioner: VolumeOptions %v", options))
+  if options.PVC.Spec.Selector != nil {
+    return nil, controller.ProvisioningFinished, fmt.Errorf("claim Selector is not supported")
+  }
+  logger.Info(fmt.Sprintf("nfs provisioner: VolumeOptions %v", options))
 
-	pvcNamespace := options.PVC.Namespace
-	pvcName := options.PVC.Name
+  pvcNamespace := options.PVC.Namespace
+  pvcName := options.PVC.Name
 
-	pvName := strings.Join([]string{pvcNamespace, pvcName, options.PVName}, "-")
+  pvName := strings.Join([]string{pvcNamespace, pvcName, options.PVName}, "-")
 
-	metadata := &pvcMetadata{
-		data: map[string]string{
-			"name":      pvcName,
-			"namespace": pvcNamespace,
-		},
-		labels:      options.PVC.Labels,
-		annotations: options.PVC.Annotations,
-	}
+  metadata := &pvcMetadata{
+    data: map[string]string{
+      "name":      pvcName,
+      "namespace": pvcNamespace,
+      "pvname": options.PVName,
+    },
+    labels:      options.PVC.Labels,
+    annotations: options.PVC.Annotations,
+  }
 
-	fullPath := filepath.Join(mountPath, pvName)
-	path := filepath.Join(p.path, pvName)
+  fullPath := filepath.Join(mountPath, pvName)
+  path := filepath.Join(p.path, pvName)
 
-	pathPattern, exists := options.StorageClass.Parameters["pathPattern"]
-	if exists {
-		customPath := metadata.stringParser(pathPattern)
-		if customPath != "" {
-			path = filepath.Join(p.path, customPath)
-			fullPath = filepath.Join(mountPath, customPath)
-		}
-	}
+  pathPattern, exists := options.StorageClass.Parameters["pathPattern"]
+  if exists {
+    customPath := metadata.stringParser(pathPattern)
+    if customPath != "" {
+      path = filepath.Join(p.path, customPath)
+      fullPath = filepath.Join(mountPath, customPath)
+    }
+  }
 
-	logger.Info(fmt.Sprintf("creating path %s", fullPath))
-	if err := os.MkdirAll(fullPath, 0o777); err != nil {
-		return nil, controller.ProvisioningFinished, errors.New("unable to create directory to provision new pv: " + err.Error())
-	}
-	err := os.Chmod(fullPath, 0o777)
-	if err != nil {
-		return nil, "", err
-	}
+  logger.Info(fmt.Sprintf("creating path %s", fullPath))
+  if err := os.MkdirAll(fullPath, 0o777); err != nil {
+    return nil, controller.ProvisioningFinished, errors.New("unable to create directory to provision new pv: " + err.Error())
+  }
+  err := os.Chmod(fullPath, 0o777)
+  if err != nil {
+    return nil, "", err
+  }
 
-	pv := &v1.PersistentVolume{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: options.PVName,
-		},
-		Spec: v1.PersistentVolumeSpec{
-			PersistentVolumeReclaimPolicy: *options.StorageClass.ReclaimPolicy,
-			AccessModes:                   options.PVC.Spec.AccessModes,
-			MountOptions:                  options.StorageClass.MountOptions,
-			Capacity: v1.ResourceList{
-				v1.ResourceName(v1.ResourceStorage): options.PVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)],
-			},
-			PersistentVolumeSource: v1.PersistentVolumeSource{
-				NFS: &v1.NFSVolumeSource{
-					Server:   p.server,
-					Path:     path,
-					ReadOnly: false,
-				},
-			},
-		},
-	}
-	return pv, controller.ProvisioningFinished, nil
+  pv := &v1.PersistentVolume{
+    ObjectMeta: metav1.ObjectMeta{
+      Name: options.PVName,
+    },
+    Spec: v1.PersistentVolumeSpec{
+      PersistentVolumeReclaimPolicy: *options.StorageClass.ReclaimPolicy,
+      AccessModes:                   options.PVC.Spec.AccessModes,
+      MountOptions:                  options.StorageClass.MountOptions,
+      Capacity: v1.ResourceList{
+        v1.ResourceName(v1.ResourceStorage): options.PVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)],
+      },
+      PersistentVolumeSource: v1.PersistentVolumeSource{
+        NFS: &v1.NFSVolumeSource{
+          Server:   p.server,
+          Path:     path,
+          ReadOnly: false,
+        },
+      },
+    },
+  }
+  return pv, controller.ProvisioningFinished, nil
 }
+
+func pruneEmptyParents(path string) {
+  if filepath.Clean(path) == filepath.Clean(mountPath) {
+    return
+  }
+  err := os.Remove(path)
+  if err == nil {
+    pruneEmptyParents(filepath.Dir(path))
+  } 
+} 
 
 func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume) error {
 	logger := klog.FromContext(ctx)
 
-	path := volume.Spec.PersistentVolumeSource.NFS.Path
-	basePath := filepath.Base(path)
-	oldPath := strings.Replace(path, p.path, mountPath, 1)
+  path := volume.Spec.PersistentVolumeSource.NFS.Path
+  basePath := filepath.Base(path)
+  oldPath := strings.Replace(path, p.path, mountPath, 1)
 
-	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
-		logger.Info(fmt.Sprintf("warning: path %s does not exist, deletion skipped", oldPath))
-		return nil
-	}
-	// Get the storage class for this volume.
-	storageClass, err := p.getClassForVolume(ctx, volume)
-	if err != nil {
-		return err
-	}
+  if _, err := os.Stat(oldPath); os.IsNotExist(err) {
+    logger.Info(fmt.Sprintf("warning: path %s does not exist, deletion skipped", oldPath))
+    return nil
+  }
+  // Get the storage class for this volume.
+  storageClass, err := p.getClassForVolume(ctx, volume)
+  if err != nil {
+    return err
+  }
 
-	// Determine if the "onDelete" parameter exists.
-	// If it exists and has a `delete` value, delete the directory.
-	// If it exists and has a `retain` value, safe the directory.
-	onDelete := storageClass.Parameters["onDelete"]
-	switch onDelete {
-	case "delete":
-		return os.RemoveAll(oldPath)
-	case "retain":
-		return nil
-	}
+  // Determine if the "onDelete" parameter exists.
+  // If it exists and has a `delete` value, delete the directory.
+  // If it exists and has a `retain` value, safe the directory.
+  onDelete := storageClass.Parameters["onDelete"]
+  switch onDelete {
+  case "delete":
+    err = os.RemoveAll(oldPath)
+    if err != nil {
+      return err
+    }
+    pruneEmptyParents(filepath.Dir(oldPath))
+    logger.Info(fmt.Sprintf("path %s and any empty parents have been deleted", oldPath))
+    return nil
+  case "retain":
+    return nil
+  }
 
-	// Determine if the "archiveOnDelete" parameter exists.
-	// If it exists and has a false value, delete the directory.
-	// Otherwise, archive it.
-	archiveOnDelete, exists := storageClass.Parameters["archiveOnDelete"]
-	if exists {
-		archiveBool, err := strconv.ParseBool(archiveOnDelete)
-		if err != nil {
-			return err
-		}
-		if !archiveBool {
-			return os.RemoveAll(oldPath)
-		}
-	}
+  // Determine if the "archiveOnDelete" parameter exists.
+  // If it exists and has a false value, delete the directory.
+  // Otherwise, archive it.
+  archiveOnDelete, exists := storageClass.Parameters["archiveOnDelete"]
+  if exists {
+    archiveBool, err := strconv.ParseBool(archiveOnDelete)
+    if err != nil {
+      return err
+    }
+    if !archiveBool {
+      return os.RemoveAll(oldPath)
+    }
+  }
 
-	archivePath := filepath.Join(mountPath, "archived-"+basePath)
-	logger.Info(fmt.Sprintf("archiving path %s to %s", oldPath, archivePath))
-	return os.Rename(oldPath, archivePath)
+  archivePath := filepath.Join(mountPath, "archived-"+basePath)
+  logger.Info(fmt.Sprintf("archiving path %s to %s", oldPath, archivePath))
+  return os.Rename(oldPath, archivePath)
 }
 
 // getClassForVolume returns StorageClass.
 func (p *nfsProvisioner) getClassForVolume(ctx context.Context, pv *v1.PersistentVolume) (*storage.StorageClass, error) {
-	if p.client == nil {
-		return nil, fmt.Errorf("cannot get kube client")
-	}
-	className := storagehelpers.GetPersistentVolumeClass(pv)
-	if className == "" {
-		return nil, fmt.Errorf("volume has no storage class")
-	}
-	class, err := p.client.StorageV1().StorageClasses().Get(ctx, className, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
+  if p.client == nil {
+    return nil, fmt.Errorf("cannot get kube client")
+  }
+  className := storagehelpers.GetPersistentVolumeClass(pv)
+  if className == "" {
+    return nil, fmt.Errorf("volume has no storage class")
+  }
+  class, err := p.client.StorageV1().StorageClasses().Get(ctx, className, metav1.GetOptions{})
+  if err != nil {
+    return nil, err
+  }
 
-	return class, nil
+  return class, nil
 }
 
 func main() {
-	flag.Parse()
-	_ = flag.Set("logtostderr", "true")
+  flag.Parse()
+  _ = flag.Set("logtostderr", "true")
 
-	ctx := context.Background()
-	logger := klog.FromContext(ctx)
+  ctx := context.Background()
+  logger := klog.FromContext(ctx)
 
-	server := os.Getenv("NFS_SERVER")
-	if server == "" {
-		logger.Error(nil, "NFS_SERVER not set")
-		os.Exit(1)
-	}
-	path := os.Getenv("NFS_PATH")
-	if path == "" {
-		logger.Error(nil, "NFS_PATH not set")
-		os.Exit(1)
-	}
-	provisionerName := os.Getenv(provisionerNameKey)
-	if provisionerName == "" {
-		logger.Error(nil, fmt.Sprintf("environment variable %s is not set! Please set it.", provisionerNameKey))
-		os.Exit(1)
-	}
+  server := os.Getenv("NFS_SERVER")
+  if server == "" {
+    logger.Error(nil, "NFS_SERVER not set")
+    os.Exit(1)
+  }
+  path := os.Getenv("NFS_PATH")
+  if path == "" {
+    logger.Error(nil, "NFS_PATH not set")
+    os.Exit(1)
+  }
+  provisionerName := os.Getenv(provisionerNameKey)
+  if provisionerName == "" {
+    logger.Error(nil, fmt.Sprintf("environment variable %s is not set! Please set it.", provisionerNameKey))
+    os.Exit(1)
+  }
 
-	kubeconfig := os.Getenv("KUBECONFIG")
-	var config *rest.Config
-	if kubeconfig != "" {
-		// Create an OutOfClusterConfig and use it to create a client for the controller
-		// to use to communicate with Kubernetes
-		var err error
-		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			logger.Error(err, "failed to create kubeconfig")
-			os.Exit(1)
-		}
-	} else {
-		// Create an InClusterConfig and use it to create a client for the controller
-		// to use to communicate with Kubernetes
-		var err error
-		config, err = rest.InClusterConfig()
-		if err != nil {
-			logger.Error(err, "failed to create in cluster config")
-			os.Exit(1)
-		}
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		logger.Error(err, "failed to create kubernetes client")
-		os.Exit(1)
-	}
+  kubeconfig := os.Getenv("KUBECONFIG")
+  var config *rest.Config
+  if kubeconfig != "" {
+    // Create an OutOfClusterConfig and use it to create a client for the controller
+    // to use to communicate with Kubernetes
+    var err error
+    config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+    if err != nil {
+      logger.Error(err, "failed to create kubeconfig")
+      os.Exit(1)
+    }
+  } else {
+    // Create an InClusterConfig and use it to create a client for the controller
+    // to use to communicate with Kubernetes
+    var err error
+    config, err = rest.InClusterConfig()
+    if err != nil {
+      logger.Error(err, "failed to create in cluster config")
+      os.Exit(1)
+    }
+  }
+  clientset, err := kubernetes.NewForConfig(config)
+  if err != nil {
+    logger.Error(err, "failed to create kubernetes client")
+    os.Exit(1)
+  }
 
-	// Create the provisioner: it implements the Provisioner interface expected by
-	// the controller
-	clientNFSProvisioner := &nfsProvisioner{
-		client: clientset,
-		server: server,
-		path:   path,
-	}
+  // Create the provisioner: it implements the Provisioner interface expected by
+  // the controller
+  clientNFSProvisioner := &nfsProvisioner{
+    client: clientset,
+    server: server,
+    path:   path,
+  }
 
-	// Start the provision controller which will dynamically provision efs NFS
-	// PVs
-	pc := controller.NewProvisionController(
-		logger,
-		clientset,
-		provisionerName,
-		clientNFSProvisioner,
-	)
+  // Start the provision controller which will dynamically provision efs NFS
+  // PVs
+  pc := controller.NewProvisionController(
+    logger,
+    clientset,
+    provisionerName,
+    clientNFSProvisioner,
+  )
 
-	// Never stops.
-	pc.Run(context.Background())
+  // Never stops.
+  pc.Run(context.Background())
 }
