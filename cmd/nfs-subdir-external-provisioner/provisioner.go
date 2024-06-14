@@ -146,13 +146,22 @@ func (p *nfsProvisioner) Provision(ctx context.Context, options controller.Provi
 	return pv, controller.ProvisioningFinished, nil
 }
 
+func pruneEmptyParents(path string) {
+  if filepath.Clean(path) == filepath.Clean(mountPath) {
+    return
+  }
+  err := os.Remove(path)
+  if err == nil {
+    pruneEmptyParents(filepath.Dir(path))
+  } 
+} 
+
 func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume) error {
 	logger := klog.FromContext(ctx)
 
 	path := volume.Spec.PersistentVolumeSource.NFS.Path
 	basePath := filepath.Base(path)
 	oldPath := strings.Replace(path, p.path, mountPath, 1)
-	parentPath := filepath.Dir(oldPath)
 
 	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
 		logger.Info(fmt.Sprintf("warning: path %s does not exist, deletion skipped", oldPath))
@@ -174,12 +183,9 @@ func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume
 		if err != nil {
 			return err
 		}
-		logger.Info(fmt.Sprintf("path %s has been deleted", oldPath))
-		err = os.Remove(parentPath)
-		if err == nil {
-			logger.Info(fmt.Sprintf("Empty parent %s has been deleted", parentPath))
-		}		
-    		return nil
+    pruneEmptyParents(filepath.Dir(oldPath))
+		logger.Info(fmt.Sprintf("path %s and any empty parents have been deleted", oldPath))
+    return nil
 	case "retain":
 		return nil
 	}
