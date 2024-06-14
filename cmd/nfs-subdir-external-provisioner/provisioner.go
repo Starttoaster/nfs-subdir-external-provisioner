@@ -21,13 +21,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	storagehelpers "k8s.io/component-helpers/storage/volume"
-	"k8s.io/klog/v2"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+
+	storagehelpers "k8s.io/component-helpers/storage/volume"
+	"k8s.io/klog/v2"
 
 	v1 "k8s.io/api/core/v1"
 
@@ -74,7 +76,8 @@ func (meta *pvcMetadata) stringParser(str string) string {
 }
 
 const (
-	mountPath = "/persistentvolumes"
+	mountPath      = "/persistentvolumes/"
+	archiveSubPath = "_archived_"
 )
 
 var _ controller.Provisioner = &nfsProvisioner{}
@@ -96,6 +99,7 @@ func (p *nfsProvisioner) Provision(ctx context.Context, options controller.Provi
 		data: map[string]string{
 			"name":      pvcName,
 			"namespace": pvcNamespace,
+			"pvname":    options.PVName,
 		},
 		labels:      options.PVC.Labels,
 		annotations: options.PVC.Annotations,
@@ -145,11 +149,38 @@ func (p *nfsProvisioner) Provision(ctx context.Context, options controller.Provi
 	return pv, controller.ProvisioningFinished, nil
 }
 
+func pruneEmptyParents(path string) {
+	if filepath.Clean(path) == filepath.Clean(mountPath) {
+		return
+	}
+	err := os.Remove(path)
+	if err == nil {
+		pruneEmptyParents(filepath.Dir(path))
+	}
+}
+
+func deleteAndPruneEmptyParents(path string, ctx context.Context) error {
+	logger := klog.FromContext(ctx)
+	err := os.RemoveAll(path)
+	if err != nil {
+		return err
+	}
+	pruneEmptyParents(filepath.Dir(path))
+	logger.Info(fmt.Sprintf("path %s and any empty parents have been deleted", path))
+	return nil
+}
+
+func buildArchivePath(path string) string {
+	if filepath.Clean(path) == filepath.Clean(mountPath) {
+		return fmt.Sprintf("%s/%s", archiveSubPath, time.Now().Format("200601021504"))
+	}
+	return fmt.Sprintf("%s.%s", buildArchivePath(filepath.Dir(path)), filepath.Base(path))
+}
+
 func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume) error {
 	logger := klog.FromContext(ctx)
 
 	path := volume.Spec.PersistentVolumeSource.NFS.Path
-	basePath := filepath.Base(path)
 	oldPath := strings.Replace(path, p.path, mountPath, 1)
 
 	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
@@ -168,7 +199,7 @@ func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume
 	onDelete := storageClass.Parameters["onDelete"]
 	switch onDelete {
 	case "delete":
-		return os.RemoveAll(oldPath)
+		return deleteAndPruneEmptyParents(oldPath, ctx)
 	case "retain":
 		return nil
 	}
@@ -183,13 +214,25 @@ func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume
 			return err
 		}
 		if !archiveBool {
-			return os.RemoveAll(oldPath)
+			return deleteAndPruneEmptyParents(oldPath, ctx)
 		}
 	}
 
-	archivePath := filepath.Join(mountPath, "archived-"+basePath)
-	logger.Info(fmt.Sprintf("archiving path %s to %s", oldPath, archivePath))
-	return os.Rename(oldPath, archivePath)
+	archivePath := filepath.Join(mountPath, buildArchivePath(oldPath))
+
+	if _, err := os.Stat(filepath.Join(mountPath, archiveSubPath)); os.IsNotExist(err) {
+		os.MkdirAll(filepath.Join(mountPath, archiveSubPath), 0755)
+	}
+
+	err = os.Rename(oldPath, archivePath)
+	if err == nil {
+		logger.Info(fmt.Sprintf("Archived path %s to %s", oldPath, archivePath))
+		pruneEmptyParents(filepath.Dir(oldPath))
+	} else {
+		logger.Info(fmt.Sprintf("Error archiving path %s to %s", oldPath, archivePath))
+	}
+
+	return err
 }
 
 // getClassForVolume returns StorageClass.
