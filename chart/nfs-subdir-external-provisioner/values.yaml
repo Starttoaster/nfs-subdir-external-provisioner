@@ -3,7 +3,7 @@ strategyType: Recreate
 
 image:
   repository: ghcr.io/starttoaster/nfs-subdir-external-provisioner
-  tag: v4.0.4
+  tag: v4.0.5
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
