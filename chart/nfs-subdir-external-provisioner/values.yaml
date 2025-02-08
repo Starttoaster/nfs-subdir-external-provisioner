@@ -2,8 +2,8 @@ replicaCount: 1
 strategyType: Recreate
 
 image:
-  repository: registry.k8s.io/sig-storage/nfs-subdir-external-provisioner
-  tag: v4.0.2
+  repository: ghcr.io/starttoaster/nfs-subdir-external-provisioner
+  tag: v4.0.4
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
